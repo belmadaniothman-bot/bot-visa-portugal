@@ -115,13 +115,22 @@ def verifier(cfg):
     etat = charger(ETAT, {})
     premier_lancement = not etat
     alertes = []
+    # Source principale : BLS. On prévient si elle échoue 3 fois de suite.
     try:
         texte = avis_bls(telecharger(BLS_URL))
         empreinte = hashlib.sha256(texte.encode()).hexdigest()
         if empreinte != etat.get("bls_empreinte"):
             alertes.append(message_bls(texte))
             etat["bls_empreinte"] = empreinte
+        etat["echecs"] = 0
+    except Exception as e:  # site indisponible, page modifiée…
+        etat["echecs"] = etat.get("echecs", 0) + 1
+        print("Erreur :", e, file=sys.stderr)
+        if etat["echecs"] == 3:  # une seule alerte, après 3 échecs de suite
+            alertes.append(f"⚠️ Bot visa : 3 vérifications BLS ratées de suite.\nDernière erreur : {e}")
 
+    # Source secondaire : l'ambassade (bloque les serveurs GitHub). Échec silencieux.
+    try:
         liens = actus_ambassade(telecharger(AMBASSADE_URL))
         nouveaux = [l for l in liens if l not in etat.get("ambassade_liens", [])]
         if nouveaux and "ambassade_liens" in etat:
@@ -129,12 +138,8 @@ def verifier(cfg):
                                for l in nouveaux)
             alertes.append(f"🏛️ Nouvelle actualité de l'Ambassade du Portugal :\n{titres}\n\n{AMBASSADE_URL}")
         etat["ambassade_liens"] = liens
-        etat["echecs"] = 0
-    except Exception as e:  # site indisponible, page modifiée…
-        etat["echecs"] = etat.get("echecs", 0) + 1
-        print("Erreur :", e, file=sys.stderr)
-        if etat["echecs"] == 3:  # une seule alerte, après 3 échecs de suite
-            alertes.append(f"⚠️ Bot visa : 3 vérifications ratées de suite.\nDernière erreur : {e}")
+    except Exception as e:
+        print("Ambassade inaccessible :", e, file=sys.stderr)
 
     if premier_lancement:
         alertes.insert(0, "✅ Bot visa Portugal activé. Tu seras alerté à chaque nouvelle annonce.\n"
